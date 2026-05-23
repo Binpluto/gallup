@@ -53,6 +53,7 @@ const viewer = document.querySelector(".viewer");
 const badge = document.querySelector("#domainBadge");
 const title = document.querySelector("#activeTitle");
 const meta = document.querySelector("#activeMeta");
+const pageStage = document.querySelector(".page-stage");
 const image = document.querySelector("#pageImage");
 const orderedPages = document.querySelector("#orderedPages");
 const emptyState = document.querySelector("#emptyState");
@@ -348,7 +349,8 @@ function renderViewer() {
   orderedPages.hidden = true;
   image.hidden = false;
   pdfLink.hidden = false;
-  document.querySelector(".page-stage").classList.toggle("is-result-mode", isResultMode && resultEntries.length > 0);
+  viewer.classList.toggle("is-result-view", isResultMode);
+  pageStage.classList.toggle("is-result-mode", isResultMode && resultEntries.length > 0);
 
   if (isResultMode) {
     viewer.style.setProperty("--domain", "#4b4741");
@@ -387,6 +389,9 @@ function renderViewer() {
 
       card.append(head, img);
       orderedPages.append(card);
+    });
+    requestAnimationFrame(() => {
+      pageStage.scrollTop = 0;
     });
     return;
   }

@@ -368,6 +368,10 @@ h1 {
   padding: 24px;
 }
 
+.viewer.is-result-view {
+  display: block;
+}
+
 .viewer-head {
   display: flex;
   justify-content: space-between;
@@ -428,6 +432,8 @@ h2 {
 
 .page-stage.is-result-mode {
   display: block;
+  overflow: visible;
+  min-height: auto;
 }
 
 #pageImage {
@@ -440,10 +446,10 @@ h2 {
 }
 
 .ordered-pages {
-  width: min(100%, 860px);
+  width: min(100%, 820px);
   margin: 0 auto;
   display: grid;
-  gap: 22px;
+  gap: 34px;
 }
 
 .ordered-pages[hidden],
