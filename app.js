@@ -59,15 +59,137 @@ const testStatus = document.querySelector("#testStatus");
 const resultEntry = document.querySelector("#resultEntry");
 const resultScope = document.querySelector("#resultScope");
 const rankGrid = document.querySelector("#rankGrid");
+const usernameInput = document.querySelector("#usernameInput");
+const userList = document.querySelector("#userList");
+const userLoginButton = document.querySelector("#userLoginButton");
+const userClearButton = document.querySelector("#userClearButton");
+const userStatus = document.querySelector("#userStatus");
 
 let activeTalent = talents.find((talent) => talent.name === "战略");
 let activeDomain = activeTalent.domain;
 let testMode = "untested";
 let resultCount = 5;
 const rankedTalents = Array(10).fill("");
+let currentUser = "";
+
+const storageKey = "gallupTalentToolUsers";
+const lastUserKey = "gallupTalentToolLastUser";
 
 function normalize(value) {
   return value.toLowerCase().replace(/\s+/g, "");
+}
+
+function normalizeUsername(value) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function readUsers() {
+  try {
+    return JSON.parse(localStorage.getItem(storageKey)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function writeUsers(users) {
+  localStorage.setItem(storageKey, JSON.stringify(users));
+}
+
+function userState() {
+  return {
+    testMode,
+    resultCount,
+    rankedTalents: [...rankedTalents],
+    activeTalent: activeTalent?.name || "",
+  };
+}
+
+function blankUserState() {
+  return {
+    testMode: "untested",
+    resultCount: 5,
+    rankedTalents: Array(10).fill(""),
+    activeTalent: "战略",
+  };
+}
+
+function applyUserState(state) {
+  testMode = state?.testMode === "tested" ? "tested" : "untested";
+  resultCount = Number(state?.resultCount) === 10 ? 10 : 5;
+  rankedTalents.splice(0, rankedTalents.length, ...Array(10).fill(""));
+  (state?.rankedTalents || []).slice(0, 10).forEach((talentName, index) => {
+    rankedTalents[index] = talentName;
+  });
+
+  const savedTalent = findTalent(state?.activeTalent || rankedTalents.find(Boolean) || "");
+  if (savedTalent) {
+    activeTalent = savedTalent;
+    activeDomain = savedTalent.domain;
+    input.value = savedTalent.name;
+  }
+}
+
+function saveCurrentUser() {
+  if (!currentUser) return;
+  const users = readUsers();
+  users[currentUser] = userState();
+  writeUsers(users);
+  localStorage.setItem(lastUserKey, currentUser);
+  renderUserList();
+  renderUserStatus();
+}
+
+function renderUserList() {
+  userList.innerHTML = "";
+  Object.keys(readUsers())
+    .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"))
+    .forEach((username) => {
+      const option = document.createElement("option");
+      option.value = username;
+      userList.append(option);
+    });
+}
+
+function renderUserStatus() {
+  if (!currentUser) {
+    userStatus.textContent = "当前未登录，输入用户名后会自动记住才干结果。";
+    return;
+  }
+
+  const filledCount = rankedTalents.filter((name) => Boolean(findTalent(name))).length;
+  userStatus.textContent = `${currentUser} 已进入，已保存 ${filledCount} 个才干。`;
+}
+
+function loginUser(name) {
+  const username = normalizeUsername(name);
+  if (!username) {
+    userStatus.textContent = "请输入用户名。";
+    return;
+  }
+
+  if (currentUser && currentUser !== username) saveCurrentUser();
+
+  const users = readUsers();
+  currentUser = username;
+  usernameInput.value = username;
+  if (users[username]) {
+    applyUserState(users[username]);
+  } else {
+    users[username] = blankUserState();
+    writeUsers(users);
+    applyUserState(users[username]);
+  }
+  localStorage.setItem(lastUserKey, username);
+  renderUserList();
+  render();
+}
+
+function logoutUser() {
+  saveCurrentUser();
+  currentUser = "";
+  usernameInput.value = "";
+  localStorage.removeItem(lastUserKey);
+  renderUserStatus();
 }
 
 function pagePath(page, ext) {
@@ -183,6 +305,7 @@ function renderRankInputs() {
       rankedTalents[index] = rankInput.value;
       const matchedTalent = findTalent(rankInput.value);
       if (matchedTalent) {
+        rankedTalents[index] = matchedTalent.name;
         const matchedDomain = domainById(matchedTalent.domain);
         field.classList.add("has-talent");
         field.style.setProperty("--rank-color", matchedDomain.color);
@@ -194,6 +317,7 @@ function renderRankInputs() {
         field.classList.remove("has-talent");
         field.style.removeProperty("--rank-color");
       }
+      saveCurrentUser();
     });
 
     field.append(number, rankInput);
@@ -205,6 +329,7 @@ function setActiveTalent(talent) {
   activeTalent = talent;
   renderViewer();
   renderTalentList();
+  saveCurrentUser();
 }
 
 function renderViewer() {
@@ -236,6 +361,7 @@ function render() {
   renderTabs();
   renderTalentList();
   renderViewer();
+  renderUserStatus();
 }
 
 input.addEventListener("input", () => {
@@ -267,6 +393,7 @@ testStatus.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-status]");
   if (!button) return;
   testMode = button.dataset.status;
+  saveCurrentUser();
   render();
 });
 
@@ -274,9 +401,25 @@ resultScope.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-count]");
   if (!button) return;
   resultCount = Number(button.dataset.count);
+  saveCurrentUser();
   render();
 });
 
+userLoginButton.addEventListener("click", () => {
+  loginUser(usernameInput.value);
+});
+
+usernameInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") loginUser(usernameInput.value);
+});
+
+userClearButton.addEventListener("click", () => {
+  logoutUser();
+});
+
 renderDatalist();
+renderUserList();
+const lastUser = localStorage.getItem(lastUserKey);
+if (lastUser && readUsers()[lastUser]) loginUser(lastUser);
 input.value = activeTalent.name;
 render();

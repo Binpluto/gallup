@@ -17,6 +17,19 @@
           </div>
         </div>
 
+        <section class="user-panel">
+          <label class="user-field">
+            <span>用户名</span>
+            <input id="usernameInput" list="userList" autocomplete="off" placeholder="输入用户名注册或进入" />
+            <datalist id="userList"></datalist>
+          </label>
+          <div class="user-actions">
+            <button id="userLoginButton" type="button">注册 / 进入</button>
+            <button id="userClearButton" type="button">退出</button>
+          </div>
+          <p id="userStatus">当前未登录，输入用户名后会自动记住才干结果。</p>
+        </section>
+
         <label class="search">
           <span>才干标题</span>
           <input id="talentInput" list="talentList" autocomplete="off" placeholder="如：战略、成就、沟通" />
@@ -59,6 +72,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=3"></script>
+    <script src="./app.js?v=4"></script>
   </body>
 </html>
