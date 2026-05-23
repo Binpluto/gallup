@@ -347,6 +347,8 @@ function renderViewer() {
   const isResultMode = testMode === "tested";
   orderedPages.innerHTML = "";
   orderedPages.hidden = true;
+  orderedPages.classList.toggle("is-top-five", resultCount === 5);
+  orderedPages.classList.toggle("is-top-ten", resultCount === 10);
   image.hidden = false;
   pdfLink.hidden = false;
   viewer.classList.toggle("is-result-view", isResultMode);

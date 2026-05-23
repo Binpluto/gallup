@@ -449,9 +449,16 @@ h2 {
   width: 100%;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: start;
   gap: 18px;
+}
+
+.ordered-pages.is-top-five {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ordered-pages.is-top-ten {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .ordered-pages[hidden],
