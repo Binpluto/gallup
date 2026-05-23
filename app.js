@@ -54,6 +54,8 @@ const badge = document.querySelector("#domainBadge");
 const title = document.querySelector("#activeTitle");
 const meta = document.querySelector("#activeMeta");
 const image = document.querySelector("#pageImage");
+const orderedPages = document.querySelector("#orderedPages");
+const emptyState = document.querySelector("#emptyState");
 const pdfLink = document.querySelector("#pdfLink");
 const testStatus = document.querySelector("#testStatus");
 const resultEntry = document.querySelector("#resultEntry");
@@ -204,6 +206,13 @@ function legacyImagePath(page) {
   return `./assets/page-images/page-${number}.pdf.png`;
 }
 
+function rankedTalentEntries() {
+  return rankedTalents
+    .slice(0, resultCount)
+    .map((talentName, index) => ({ index, talent: findTalent(talentName) }))
+    .filter((entry) => entry.talent);
+}
+
 function domainById(id) {
   return domains.find((domain) => domain.id === id);
 }
@@ -333,11 +342,61 @@ function setActiveTalent(talent) {
 }
 
 function renderViewer() {
+  const resultEntries = testMode === "tested" ? rankedTalentEntries() : [];
+  const isResultMode = testMode === "tested";
+  orderedPages.innerHTML = "";
+  orderedPages.hidden = true;
+  image.hidden = false;
+  pdfLink.hidden = false;
+  document.querySelector(".page-stage").classList.toggle("is-result-mode", isResultMode && resultEntries.length > 0);
+
+  if (isResultMode) {
+    viewer.style.setProperty("--domain", "#4b4741");
+    badge.textContent = "测试结果";
+    title.textContent = resultCount === 5 ? "前五才干" : "前十才干";
+    meta.textContent = `已录入 ${resultEntries.length}/${resultCount} 个才干，按排名顺序展示`;
+    image.hidden = true;
+    pdfLink.hidden = true;
+
+    if (!resultEntries.length) {
+      viewer.classList.add("is-empty");
+      emptyState.textContent = `请在左侧输入${resultCount === 5 ? "前五" : "前十"}才干`;
+      return;
+    }
+
+    viewer.classList.remove("is-empty");
+    orderedPages.hidden = false;
+    resultEntries.forEach(({ index, talent }) => {
+      const domain = domainById(talent.domain);
+      const card = document.createElement("article");
+      card.className = "ordered-page";
+      card.style.setProperty("--rank-color", domain.color);
+
+      const head = document.createElement("div");
+      head.className = "ordered-page-head";
+      head.innerHTML = `<span>${index + 1}</span><strong>${talent.name}</strong><em>${talent.english} · ${domain.name}</em>`;
+
+      const img = document.createElement("img");
+      img.src = pagePath(talent.page, "png");
+      img.alt = `第 ${index + 1} 才干 ${talent.name} 解读卡`;
+      img.addEventListener("error", () => {
+        if (!img.src.endsWith(legacyImagePath(talent.page).replace("./", ""))) {
+          img.src = legacyImagePath(talent.page);
+        }
+      });
+
+      card.append(head, img);
+      orderedPages.append(card);
+    });
+    return;
+  }
+
   if (!activeTalent) {
     viewer.classList.add("is-empty");
     title.textContent = "";
     meta.textContent = "";
     badge.textContent = "";
+    emptyState.textContent = "未找到匹配才干";
     return;
   }
 
