@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>盖洛普才干应用工具</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <aside class="panel">
+        <div class="brand">
+          <span class="mark"></span>
+          <div>
+            <h1>盖洛普才干应用工具</h1>
+            <p>34 才干 · 四大领域</p>
+          </div>
+        </div>
+
+        <label class="search">
+          <span>才干标题</span>
+          <input id="talentInput" list="talentList" autocomplete="off" placeholder="如：战略、成就、沟通" />
+          <datalist id="talentList"></datalist>
+        </label>
+
+        <section class="test-panel">
+          <div class="segmented" id="testStatus" aria-label="测试状态">
+            <button class="is-active" type="button" data-status="untested">没做测试</button>
+            <button type="button" data-status="tested">已做测试</button>
+          </div>
+
+          <div class="result-entry" id="resultEntry" hidden>
+            <div class="segmented compact" id="resultScope" aria-label="结果范围">
+              <button class="is-active" type="button" data-count="5">前五才干</button>
+              <button type="button" data-count="10">前十才干</button>
+            </div>
+            <div class="rank-grid" id="rankGrid"></div>
+          </div>
+        </section>
+
+        <div class="domains" id="domainTabs" aria-label="才干领域"></div>
+        <div class="talent-list" id="talentListView"></div>
+      </aside>
+
+      <section class="viewer" aria-live="polite">
+        <div class="viewer-head">
+          <div>
+            <span class="domain-badge" id="domainBadge"></span>
+            <h2 id="activeTitle"></h2>
+            <p id="activeMeta"></p>
+          </div>
+          <a class="pdf-link" id="pdfLink" target="_blank" rel="noreferrer">PDF</a>
+        </div>
+
+        <div class="page-stage">
+          <img id="pageImage" alt="" />
+          <div class="empty" id="emptyState">未找到匹配才干</div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js?v=3"></script>
+  </body>
+</html>
