@@ -446,10 +446,12 @@ h2 {
 }
 
 .ordered-pages {
-  width: min(100%, 820px);
+  width: 100%;
   margin: 0 auto;
   display: grid;
-  gap: 34px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 18px;
 }
 
 .ordered-pages[hidden],
@@ -460,16 +462,17 @@ h2 {
 
 .ordered-page {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .ordered-page-head {
   display: grid;
-  grid-template-columns: 34px auto 1fr;
+  grid-template-columns: 30px 1fr;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
   min-height: 42px;
-  padding: 6px 10px;
+  padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -479,22 +482,23 @@ h2 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 8px;
   background: var(--rank-color);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .ordered-page-head strong {
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.1;
 }
 
 .ordered-page-head em {
+  grid-column: 2;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   font-style: normal;
   min-width: 0;
 }
@@ -563,6 +567,10 @@ h2 {
 
   .page-stage {
     padding: 10px;
+  }
+
+  .ordered-pages {
+    grid-template-columns: 1fr;
   }
 
   .ordered-page-head {
