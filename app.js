@@ -87,6 +87,9 @@ const testStatus = document.querySelector("#testStatus");
 const resultEntry = document.querySelector("#resultEntry");
 const resultScope = document.querySelector("#resultScope");
 const rankGrid = document.querySelector("#rankGrid");
+const comboEntry = document.querySelector("#comboEntry");
+const comboTalentA = document.querySelector("#comboTalentA");
+const comboTalentB = document.querySelector("#comboTalentB");
 const usernameInput = document.querySelector("#usernameInput");
 const userList = document.querySelector("#userList");
 const userLoginButton = document.querySelector("#userLoginButton");
@@ -98,6 +101,7 @@ let activeDomain = activeTalent.domain;
 let testMode = "untested";
 let resultCount = 5;
 const rankedTalents = Array(10).fill("");
+const comboTalents = ["", ""];
 let currentUser = "";
 
 const storageKey = "gallupTalentToolUsers";
@@ -128,6 +132,7 @@ function userState() {
     testMode,
     resultCount,
     rankedTalents: [...rankedTalents],
+    comboTalents: [...comboTalents],
     activeTalent: activeTalent?.name || "",
   };
 }
@@ -137,16 +142,21 @@ function blankUserState() {
     testMode: "untested",
     resultCount: 5,
     rankedTalents: Array(10).fill(""),
+    comboTalents: ["", ""],
     activeTalent: "战略",
   };
 }
 
 function applyUserState(state) {
-  testMode = state?.testMode === "tested" ? "tested" : "untested";
+  testMode = ["tested", "combination"].includes(state?.testMode) ? state.testMode : "untested";
   resultCount = Number(state?.resultCount) === 10 ? 10 : 5;
   rankedTalents.splice(0, rankedTalents.length, ...Array(10).fill(""));
   (state?.rankedTalents || []).slice(0, 10).forEach((talentName, index) => {
     rankedTalents[index] = talentName;
+  });
+  comboTalents.splice(0, comboTalents.length, "", "");
+  (state?.comboTalents || []).slice(0, 2).forEach((talentName, index) => {
+    comboTalents[index] = talentName;
   });
 
   const savedTalent = findTalent(state?.activeTalent || rankedTalents.find(Boolean) || "");
@@ -239,6 +249,12 @@ function rankedTalentEntries() {
     .filter((entry) => entry.talent);
 }
 
+function comboTalentEntries() {
+  return comboTalents
+    .map((talentName, index) => ({ index, talent: findTalent(talentName) }))
+    .filter((entry) => entry.talent);
+}
+
 function domainById(id) {
   return domains.find((domain) => domain.id === id);
 }
@@ -299,11 +315,17 @@ function renderTalentList() {
     .forEach((talent) => {
       const domain = domainById(talent.domain);
       const button = document.createElement("button");
+      const isSelected = activeTalent?.name === talent.name || (testMode === "combination" && comboTalents.includes(talent.name));
       button.type = "button";
-      button.className = `talent-button ${activeTalent?.name === talent.name ? "is-active" : ""}`;
+      button.className = `talent-button ${isSelected ? "is-active" : ""}`;
       button.style.setProperty("--domain", domain.color);
       button.innerHTML = `<strong>${talent.name}</strong><span>${talent.english}</span>`;
       button.addEventListener("click", () => {
+        if (testMode === "combination") {
+          const targetIndex = comboTalents[0] ? 1 : 0;
+          setComboTalent(targetIndex, talent);
+          return;
+        }
         input.value = talent.name;
         setActiveTalent(talent);
       });
@@ -360,6 +382,23 @@ function renderRankInputs() {
   }
 }
 
+function renderComboInputs() {
+  comboTalentA.value = comboTalents[0];
+  comboTalentB.value = comboTalents[1];
+}
+
+function setComboTalent(index, talent) {
+  comboTalents[index] = talent.name;
+  activeTalent = talent;
+  activeDomain = talent.domain;
+  input.value = talent.name;
+  renderComboInputs();
+  renderTabs();
+  renderTalentList();
+  renderViewer();
+  saveCurrentUser();
+}
+
 function setActiveTalent(talent) {
   activeTalent = talent;
   renderViewer();
@@ -369,15 +408,18 @@ function setActiveTalent(talent) {
 
 function renderViewer() {
   const resultEntries = testMode === "tested" ? rankedTalentEntries() : [];
+  const comboEntries = testMode === "combination" ? comboTalentEntries() : [];
   const isResultMode = testMode === "tested";
+  const isComboMode = testMode === "combination";
   orderedPages.innerHTML = "";
   orderedPages.hidden = true;
-  orderedPages.classList.toggle("is-top-five", resultCount === 5);
-  orderedPages.classList.toggle("is-top-ten", resultCount === 10);
+  orderedPages.classList.toggle("is-top-five", isResultMode && resultCount === 5);
+  orderedPages.classList.toggle("is-top-ten", isResultMode && resultCount === 10);
+  orderedPages.classList.toggle("is-combo", isComboMode);
   image.hidden = false;
   pdfLink.hidden = false;
-  viewer.classList.toggle("is-result-view", isResultMode);
-  pageStage.classList.toggle("is-result-mode", isResultMode && resultEntries.length > 0);
+  viewer.classList.toggle("is-result-view", isResultMode || isComboMode);
+  pageStage.classList.toggle("is-result-mode", (isResultMode && resultEntries.length > 0) || (isComboMode && comboEntries.length > 0));
 
   if (isResultMode) {
     viewer.style.setProperty("--domain", "#4b4741");
@@ -424,6 +466,51 @@ function renderViewer() {
     return;
   }
 
+  if (isComboMode) {
+    viewer.style.setProperty("--domain", "#4b4741");
+    badge.textContent = "才干组合";
+    domainDescription.textContent = "从 34 个才干中任选两个，查看它们的组合";
+    title.textContent = "才干组合";
+    meta.textContent = `已选择 ${comboEntries.length}/2 个才干`;
+    image.hidden = true;
+    pdfLink.hidden = true;
+
+    if (!comboEntries.length) {
+      viewer.classList.add("is-empty");
+      emptyState.textContent = "请在左侧选择两个才干";
+      return;
+    }
+
+    viewer.classList.remove("is-empty");
+    orderedPages.hidden = false;
+    comboEntries.forEach(({ index, talent }) => {
+      const domain = domainById(talent.domain);
+      const card = document.createElement("article");
+      card.className = "ordered-page";
+      card.style.setProperty("--rank-color", domain.color);
+
+      const head = document.createElement("div");
+      head.className = "ordered-page-head";
+      head.innerHTML = `<span>${index + 1}</span><strong>${talent.name}</strong><em>${domain.name}：${domain.description}</em>`;
+
+      const img = document.createElement("img");
+      img.src = pagePath(talent.page, "png");
+      img.alt = `组合才干 ${index + 1} ${talent.name} 解读卡`;
+      img.addEventListener("error", () => {
+        if (!img.src.endsWith(legacyImagePath(talent.page).replace("./", ""))) {
+          img.src = legacyImagePath(talent.page);
+        }
+      });
+
+      card.append(head, img);
+      orderedPages.append(card);
+    });
+    requestAnimationFrame(() => {
+      pageStage.scrollTop = 0;
+    });
+    return;
+  }
+
   if (!activeTalent) {
     viewer.classList.add("is-empty");
     title.textContent = "";
@@ -449,9 +536,11 @@ function renderViewer() {
 
 function render() {
   resultEntry.hidden = testMode !== "tested";
+  comboEntry.hidden = testMode !== "combination";
   updateSegmentedButtons(testStatus, testMode, "status");
   updateSegmentedButtons(resultScope, resultCount, "count");
   if (testMode === "tested") renderRankInputs();
+  if (testMode === "combination") renderComboInputs();
   renderTabs();
   renderTalentList();
   renderViewer();
@@ -497,6 +586,38 @@ resultScope.addEventListener("click", (event) => {
   resultCount = Number(button.dataset.count);
   saveCurrentUser();
   render();
+});
+
+comboTalentA.addEventListener("input", () => {
+  comboTalents[0] = comboTalentA.value;
+  const talent = findTalent(comboTalentA.value);
+  if (talent) {
+    comboTalents[0] = talent.name;
+    comboTalentA.value = talent.name;
+    activeTalent = talent;
+    activeDomain = talent.domain;
+    input.value = talent.name;
+  }
+  saveCurrentUser();
+  renderTabs();
+  renderTalentList();
+  renderViewer();
+});
+
+comboTalentB.addEventListener("input", () => {
+  comboTalents[1] = comboTalentB.value;
+  const talent = findTalent(comboTalentB.value);
+  if (talent) {
+    comboTalents[1] = talent.name;
+    comboTalentB.value = talent.name;
+    activeTalent = talent;
+    activeDomain = talent.domain;
+    input.value = talent.name;
+  }
+  saveCurrentUser();
+  renderTabs();
+  renderTalentList();
+  renderViewer();
 });
 
 userLoginButton.addEventListener("click", () => {

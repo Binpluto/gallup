@@ -182,7 +182,7 @@ h1 {
 
 .segmented {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);
@@ -210,7 +210,12 @@ h1 {
   font-size: 13px;
 }
 
-.result-entry {
+.segmented.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.result-entry,
+.combo-entry {
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -221,6 +226,48 @@ h1 {
 
 .result-entry[hidden] {
   display: none;
+}
+
+.combo-entry[hidden] {
+  display: none;
+}
+
+.combo-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.combo-field {
+  display: grid;
+  gap: 6px;
+}
+
+.combo-field span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.combo-field input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  outline: none;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.combo-field input:focus {
+  border-color: #2f8072;
+  box-shadow: 0 0 0 3px rgba(21, 151, 127, 0.13);
+}
+
+.combo-entry p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .rank-grid {
@@ -474,6 +521,10 @@ h2 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.ordered-pages.is-combo {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .ordered-pages[hidden],
 #pageImage[hidden],
 .pdf-link[hidden] {
@@ -591,6 +642,14 @@ h2 {
 
   .ordered-pages {
     grid-template-columns: 1fr;
+  }
+
+  .segmented {
+    grid-template-columns: 1fr;
+  }
+
+  .segmented.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .ordered-page-head {

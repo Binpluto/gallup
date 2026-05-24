@@ -40,6 +40,7 @@
           <div class="segmented" id="testStatus" aria-label="测试状态">
             <button class="is-active" type="button" data-status="untested">没做测试</button>
             <button type="button" data-status="tested">已做测试</button>
+            <button type="button" data-status="combination">才干组合</button>
           </div>
 
           <div class="result-entry" id="resultEntry" hidden>
@@ -48,6 +49,20 @@
               <button type="button" data-count="10">前十才干</button>
             </div>
             <div class="rank-grid" id="rankGrid"></div>
+          </div>
+
+          <div class="combo-entry" id="comboEntry" hidden>
+            <div class="combo-grid">
+              <label class="combo-field">
+                <span>才干一</span>
+                <input id="comboTalentA" list="talentList" autocomplete="off" placeholder="选择第一个才干" />
+              </label>
+              <label class="combo-field">
+                <span>才干二</span>
+                <input id="comboTalentB" list="talentList" autocomplete="off" placeholder="选择第二个才干" />
+              </label>
+            </div>
+            <p>从 34 个才干中任选两个，右侧会展示它们的组合页面。</p>
           </div>
         </section>
 
@@ -76,6 +91,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=9"></script>
+    <script src="./app.js?v=10"></script>
   </body>
 </html>
