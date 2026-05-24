@@ -1,8 +1,32 @@
 const domains = [
-  { id: "execution", name: "执行力", english: "Executing", color: "#6d3387" },
-  { id: "influence", name: "影响力", english: "Influencing", color: "#e77721" },
-  { id: "relationship", name: "关系建立", english: "Relationship Building", color: "#2872a9" },
-  { id: "strategic", name: "战略思维", english: "Strategic Thinking", color: "#15977f" },
+  {
+    id: "execution",
+    name: "执行力",
+    english: "Executing",
+    color: "#6d3387",
+    description: "懂得如何让事情有效向前，促进其正常发展",
+  },
+  {
+    id: "influence",
+    name: "影响力",
+    english: "Influencing",
+    color: "#e77721",
+    description: "懂得如何掌控事局和影响他人，并且吸取意见",
+  },
+  {
+    id: "relationship",
+    name: "关系建立",
+    english: "Relationship Building",
+    color: "#2872a9",
+    description: "具备构建牢固关系的能力，从而将团队凝聚起来发挥更大力量",
+  },
+  {
+    id: "strategic",
+    name: "战略思维",
+    english: "Strategic Thinking",
+    color: "#15977f",
+    description: "长于获取并分析信息，从而帮助团队做出更好决策",
+  },
 ];
 
 const talents = [
@@ -51,6 +75,7 @@ const tabs = document.querySelector("#domainTabs");
 const list = document.querySelector("#talentListView");
 const viewer = document.querySelector(".viewer");
 const badge = document.querySelector("#domainBadge");
+const domainDescription = document.querySelector("#domainDescription");
 const title = document.querySelector("#activeTitle");
 const meta = document.querySelector("#activeMeta");
 const pageStage = document.querySelector(".page-stage");
@@ -258,7 +283,7 @@ function renderTabs() {
     button.className = `domain-tab ${activeDomain === domain.id ? "is-active" : ""}`;
     button.style.setProperty("--domain", domain.color);
     button.type = "button";
-    button.innerHTML = `<strong>${domain.name}</strong><span>${count} 个 · ${domain.english}</span>`;
+    button.innerHTML = `<strong>${domain.name}</strong><span>${count} 个 · ${domain.description}</span>`;
     button.addEventListener("click", () => {
       activeDomain = domain.id;
       render();
@@ -357,6 +382,7 @@ function renderViewer() {
   if (isResultMode) {
     viewer.style.setProperty("--domain", "#4b4741");
     badge.textContent = "测试结果";
+    domainDescription.textContent = "按排名顺序展示已输入的才干页面";
     title.textContent = resultCount === 5 ? "前五才干" : "前十才干";
     meta.textContent = `已录入 ${resultEntries.length}/${resultCount} 个才干，按排名顺序展示`;
     image.hidden = true;
@@ -378,7 +404,7 @@ function renderViewer() {
 
       const head = document.createElement("div");
       head.className = "ordered-page-head";
-      head.innerHTML = `<span>${index + 1}</span><strong>${talent.name}</strong><em>${talent.english} · ${domain.name}</em>`;
+      head.innerHTML = `<span>${index + 1}</span><strong>${talent.name}</strong><em>${domain.name}：${domain.description}</em>`;
 
       const img = document.createElement("img");
       img.src = pagePath(talent.page, "png");
@@ -403,6 +429,7 @@ function renderViewer() {
     title.textContent = "";
     meta.textContent = "";
     badge.textContent = "";
+    domainDescription.textContent = "";
     emptyState.textContent = "未找到匹配才干";
     return;
   }
@@ -411,6 +438,7 @@ function renderViewer() {
   viewer.classList.remove("is-empty");
   viewer.style.setProperty("--domain", domain.color);
   badge.textContent = domain.name;
+  domainDescription.textContent = domain.description;
   title.textContent = activeTalent.name;
   meta.textContent = `${activeTalent.english} · 第 ${activeTalent.page} 页`;
   image.dataset.fallbackSrc = legacyImagePath(activeTalent.page);

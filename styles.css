@@ -380,6 +380,13 @@ h1 {
   padding: 0 4px 18px;
 }
 
+.domain-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .domain-badge {
   display: inline-flex;
   align-items: center;
@@ -389,6 +396,12 @@ h1 {
   background: var(--domain);
   color: #fff;
   font-size: 13px;
+}
+
+.domain-description {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 h2 {
