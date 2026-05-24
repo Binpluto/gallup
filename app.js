@@ -425,10 +425,61 @@ function talentVariants() {
 
 function talentInText(text) {
   const compactText = compactScanText(text);
-  return talentVariants()
+  const exactMatch = talentVariants()
     .map(({ talent, key }) => ({ talent, position: compactText.indexOf(key), length: key.length }))
     .filter((entry) => entry.position >= 0)
     .sort((a, b) => a.position - b.position || b.length - a.length)[0]?.talent || null;
+  return exactMatch || fuzzyChineseTalentInText(text);
+}
+
+function chineseOnly(value) {
+  return String(value || "").replace(/[^\u4e00-\u9fff]/g, "");
+}
+
+function distanceBetween(left, right) {
+  let distance = Math.abs(left.length - right.length);
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    if (left[index] !== right[index]) distance += 1;
+  }
+  return distance;
+}
+
+function fuzzyChineseTalentInText(text) {
+  const chineseText = chineseOnly(normalizeScanText(text));
+  if (chineseText.length < 2) return null;
+
+  const candidates = [];
+  talents.forEach((talent) => {
+    if (talent.name.length !== 2) return;
+    for (let index = 0; index <= chineseText.length - 2; index += 1) {
+      const windowText = chineseText.slice(index, index + 2);
+      const distance = distanceBetween(windowText, talent.name);
+      if (distance <= 1) candidates.push({ talent, distance, index });
+    }
+  });
+
+  const bestDistance = Math.min(...candidates.map((candidate) => candidate.distance));
+  const best = candidates
+    .filter((candidate) => candidate.distance === bestDistance)
+    .sort((a, b) => a.index - b.index);
+
+  return best.length === 1 ? best[0].talent : null;
+}
+
+function orderedTalentMatchesFromText(text) {
+  const compactText = compactScanText(text);
+  const matches = [];
+  talentVariants().forEach(({ talent, key }) => {
+    const position = compactText.indexOf(key);
+    if (position >= 0) matches.push({ talent, position, length: key.length });
+  });
+
+  return matches
+    .sort((a, b) => a.position - b.position || b.length - a.length)
+    .map((match) => match.talent)
+    .filter((talent, index, array) => array.findIndex((item) => item.name === talent.name) === index)
+    .slice(0, 10);
 }
 
 function extractRankedTalentsFromText(rawText) {
@@ -456,20 +507,18 @@ function extractRankedTalentsFromText(rawText) {
     .sort((a, b) => a[0] - b[0])
     .map(([, talent]) => talent);
 
-  if (rankedMatches.length >= 5) return uniqueTalents(rankedMatches).slice(0, rankedMatches.length >= 10 ? 10 : 5);
+  const orderedMatches = orderedTalentMatchesFromText(text);
 
-  const compactText = compactScanText(text);
-  const matches = [];
-  talentVariants().forEach(({ talent, key }) => {
-    const position = compactText.indexOf(key);
-    if (position >= 0) matches.push({ talent, position, length: key.length });
-  });
+  if (rankedMatches.length >= 5) {
+    const highestRank = Math.max(...ranked.keys());
+    const looksLikeTopTen = highestRank >= 6 || rankedMatches.length >= 6 || orderedMatches.length >= 10;
+    const mergedMatches = uniqueTalents([...rankedMatches, ...orderedMatches]);
 
-  return matches
-    .sort((a, b) => a.position - b.position || b.length - a.length)
-    .map((match) => match.talent)
-    .filter((talent, index, array) => array.findIndex((item) => item.name === talent.name) === index)
-    .slice(0, 10);
+    if (looksLikeTopTen && mergedMatches.length >= 6) return mergedMatches.slice(0, 10);
+    return uniqueTalents(rankedMatches).slice(0, 5);
+  }
+
+  return orderedMatches;
 }
 
 function uniqueTalents(items) {
@@ -515,12 +564,12 @@ async function ensureTesseract() {
 function applyImportedTalents(importedTalents) {
   const recognized = uniqueTalents(importedTalents).slice(0, 10);
   if (recognized.length < 5) {
-    setImportStatus(`识别到 ${recognized.length} 个`);
+    setImportStatus(`识别到 ${recognized.length} 个，请换更清晰图片`);
     return false;
   }
 
   testMode = "tested";
-  resultCount = recognized.length >= 10 ? 10 : 5;
+  resultCount = recognized.length >= 6 ? 10 : 5;
   rankedTalents.splice(0, rankedTalents.length, ...Array(10).fill(""));
   recognized.slice(0, resultCount).forEach((talent, index) => {
     rankedTalents[index] = talent.name;
@@ -555,18 +604,63 @@ async function extractTextFromPdf(file) {
   return chunks.join("\n");
 }
 
-async function ocrImage(imageSource) {
+async function prepareOcrImage(imageSource) {
+  try {
+    setImportStatus("优化图片");
+    const bitmap = await createImageBitmap(imageSource);
+    const scale = Math.min(Math.max(1400 / bitmap.width, 1), 2.4);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let index = 0; index < imageData.data.length; index += 4) {
+      const gray =
+        imageData.data[index] * 0.299 +
+        imageData.data[index + 1] * 0.587 +
+        imageData.data[index + 2] * 0.114;
+      const contrast = Math.max(0, Math.min(255, (gray - 128) * 1.35 + 128));
+      const value = contrast > 205 ? 255 : contrast < 85 ? 0 : contrast;
+      imageData.data[index] = value;
+      imageData.data[index + 1] = value;
+      imageData.data[index + 2] = value;
+    }
+    context.putImageData(imageData, 0, 0);
+
+    return await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  } catch {
+    return imageSource;
+  }
+}
+
+async function recognizeImageText(imageSource, languages, label) {
   const Tesseract = await ensureTesseract();
 
-  const result = await Tesseract.recognize(imageSource, "chi_sim+eng", {
+  const result = await Tesseract.recognize(imageSource, languages, {
     logger(event) {
       if (event.status === "recognizing text") {
-        setImportStatus(`OCR ${Math.round(event.progress * 100)}%`);
+        setImportStatus(`${label} ${Math.round(event.progress * 100)}%`);
       }
     },
   });
 
   return result.data.text || "";
+}
+
+async function ocrImage(imageSource) {
+  const preparedImage = await prepareOcrImage(imageSource);
+  const englishText = await recognizeImageText(preparedImage || imageSource, "eng", "OCR");
+  if (extractRankedTalentsFromText(englishText).length >= 5) return englishText;
+
+  const mixedText = await recognizeImageText(preparedImage || imageSource, "chi_sim+eng", "OCR");
+  if (extractRankedTalentsFromText(mixedText).length >= 5) return mixedText;
+  return `${englishText}\n${mixedText}`;
 }
 
 async function ocrPdfPages(file) {
