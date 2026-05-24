@@ -80,6 +80,9 @@ const title = document.querySelector("#activeTitle");
 const meta = document.querySelector("#activeMeta");
 const pageStage = document.querySelector(".page-stage");
 const image = document.querySelector("#pageImage");
+const reportPreview = document.querySelector("#reportPreview");
+const reportPreviewImage = document.querySelector("#reportPreviewImage");
+const reportPreviewMeta = document.querySelector("#reportPreviewMeta");
 const orderedPages = document.querySelector("#orderedPages");
 const emptyState = document.querySelector("#emptyState");
 const pdfLink = document.querySelector("#pdfLink");
@@ -115,6 +118,9 @@ const freeRecordLimit = 3;
 const memberPrice = "¥29/月 或 ¥199/年";
 let savedRecords = [];
 let isMember = false;
+let importedReportPreviewUrl = "";
+let importedReportPreviewMeta = "";
+let importedReportPreviewObjectUrl = "";
 
 function normalize(value) {
   return value.toLowerCase().replace(/\s+/g, "");
@@ -534,6 +540,16 @@ function setImportBusy(isBusy) {
   resultFileInput.disabled = isBusy;
 }
 
+function setImportedReportPreview(url, meta, isObjectUrl = false) {
+  if (importedReportPreviewObjectUrl && importedReportPreviewObjectUrl !== url) {
+    URL.revokeObjectURL(importedReportPreviewObjectUrl);
+  }
+
+  importedReportPreviewUrl = url || "";
+  importedReportPreviewMeta = meta || "";
+  importedReportPreviewObjectUrl = isObjectUrl ? url : "";
+}
+
 function loadExternalScript(src, globalName) {
   if (window[globalName]) return Promise.resolve(window[globalName]);
   if (externalScripts.has(src)) return externalScripts.get(src);
@@ -563,22 +579,27 @@ async function ensureTesseract() {
 
 function applyImportedTalents(importedTalents) {
   const recognized = uniqueTalents(importedTalents).slice(0, 10);
-  if (recognized.length < 5) {
-    setImportStatus(`识别到 ${recognized.length} 个，请换更清晰图片`);
-    return false;
-  }
-
   testMode = "tested";
-  resultCount = recognized.length >= 6 ? 10 : 5;
+  resultCount = recognized.length >= 6 || recognized.length < 5 ? 10 : 5;
   rankedTalents.splice(0, rankedTalents.length, ...Array(10).fill(""));
   recognized.slice(0, resultCount).forEach((talent, index) => {
     rankedTalents[index] = talent.name;
   });
 
-  activeTalent = recognized[0];
-  activeDomain = activeTalent.domain;
-  input.value = activeTalent.name;
-  setImportStatus(`已识别 ${resultCount} 个`);
+  if (recognized[0]) {
+    activeTalent = recognized[0];
+    activeDomain = activeTalent.domain;
+    input.value = activeTalent.name;
+  }
+
+  if (recognized.length < 5) {
+    setImportStatus(`识别到 ${recognized.length} 个，请换更清晰图片`);
+    saveCurrentUser();
+    render();
+    return false;
+  }
+
+  setImportStatus(`已填入 ${recognized.length} 个，请对照右侧确认`);
   saveCurrentUser();
   render();
   return true;
@@ -602,6 +623,69 @@ async function extractTextFromPdf(file) {
   }
 
   return chunks.join("\n");
+}
+
+function scoreReportPage(text) {
+  const normalizedText = normalizeScanText(text);
+  const compactText = compactScanText(normalizedText);
+  const talentCount = orderedTalentMatchesFromText(normalizedText).length;
+  const rankCount = (normalizedText.match(/(?:^|\s)(?:10|[1-9])\s*[\u4e00-\u9fffA-Za-z]/gm) || []).length;
+  let score = talentCount * 6 + rankCount * 8;
+
+  if (compactText.includes("cliftonstrengths")) score += 16;
+  if (compactText.includes("克利夫顿优势")) score += 16;
+  if (compactText.includes("关系建立") && compactText.includes("执行力")) score += 18;
+  if (compactText.includes("战略思维") && compactText.includes("影响力")) score += 18;
+  if (compactText.includes("分布情况") || compactText.includes("主题最为突出")) score += 28;
+  if (compactText.includes("您的") && compactText.includes("才干主题")) score += 12;
+
+  return score;
+}
+
+async function renderPdfPage(page, scale = 1.8) {
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  await page.render({ canvasContext: context, viewport }).promise;
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  return {
+    blob,
+    url: canvas.toDataURL("image/png"),
+  };
+}
+
+async function extractReportPageFromPdf(file) {
+  const pdfjsLib = await ensurePdfJs();
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pageLimit = Math.min(pdf.numPages, 60);
+  const pages = [];
+
+  for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+    setImportStatus(`查找结果页 ${pageNumber}/${pageLimit}`);
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const text = content.items.map((item) => item.str).join("\n");
+    pages.push({ pageNumber, text, score: scoreReportPage(text) });
+  }
+
+  const bestPage = pages.sort((a, b) => b.score - a.score)[0] || { pageNumber: 1, text: "" };
+  setImportStatus(`截取第 ${bestPage.pageNumber} 页`);
+  const page = await pdf.getPage(bestPage.pageNumber);
+  const rendered = await renderPdfPage(page);
+
+  return {
+    text: bestPage.text,
+    previewBlob: rendered.blob,
+    previewUrl: rendered.url,
+    previewMeta: `PDF 第 ${bestPage.pageNumber} 页`,
+  };
 }
 
 async function prepareOcrImage(imageSource) {
@@ -663,6 +747,261 @@ async function ocrImage(imageSource) {
   return `${englishText}\n${mixedText}`;
 }
 
+const reportMatrixTemplate = [
+  ["专注", "排难", "取悦", "统率", "个别", "包容", "分析", "思维"],
+  ["信仰", "纪律", "完美", "自信", "交往", "和谐", "前瞻", "战略"],
+  ["公平", "统筹", "沟通", "行动", "伯乐", "积极", "回顾", "搜集"],
+  ["审慎", "责任", "竞争", "追求", "体谅", "适应", "学习", "理念"],
+  ["成就", "", "", "", "关联", "", "", ""],
+];
+
+async function imageBitmapFromSource(imageSource) {
+  return createImageBitmap(imageSource);
+}
+
+function coloredCellComponents(bitmap, darkOnly = false) {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  context.drawImage(bitmap, 0, 0);
+
+  const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+  const width = canvas.width;
+  const height = canvas.height;
+  const yStart = Math.floor(height * 0.43);
+  const yEnd = Math.floor(height * 0.84);
+  const mask = new Uint8Array(width * height);
+
+  for (let y = yStart; y < yEnd; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const red = data[offset];
+      const green = data[offset + 1];
+      const blue = data[offset + 2];
+      const max = Math.max(red, green, blue);
+      const min = Math.min(red, green, blue);
+      const average = (red + green + blue) / 3;
+      const isColored = max - min > 10 && average < 248;
+      const isRankedCell = max - min > 35 && average < 205;
+      if (darkOnly ? isRankedCell : isColored) mask[y * width + x] = 1;
+    }
+  }
+
+  const seen = new Uint8Array(width * height);
+  const components = [];
+  const queue = [];
+  const directions = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+
+  for (let y = yStart; y < yEnd; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const startIndex = y * width + x;
+      if (!mask[startIndex] || seen[startIndex]) continue;
+
+      let minX = x;
+      let maxX = x;
+      let minY = y;
+      let maxY = y;
+      let count = 0;
+      queue.length = 0;
+      queue.push([x, y]);
+      seen[startIndex] = 1;
+
+      for (let index = 0; index < queue.length; index += 1) {
+        const [currentX, currentY] = queue[index];
+        count += 1;
+        minX = Math.min(minX, currentX);
+        maxX = Math.max(maxX, currentX);
+        minY = Math.min(minY, currentY);
+        maxY = Math.max(maxY, currentY);
+
+        directions.forEach(([dx, dy]) => {
+          const nextX = currentX + dx;
+          const nextY = currentY + dy;
+          if (nextX < 0 || nextX >= width || nextY < yStart || nextY >= yEnd) return;
+          const nextIndex = nextY * width + nextX;
+          if (!mask[nextIndex] || seen[nextIndex]) return;
+          seen[nextIndex] = 1;
+          queue.push([nextX, nextY]);
+        });
+      }
+
+      const componentWidth = maxX - minX + 1;
+      const componentHeight = maxY - minY + 1;
+      if (
+        count > 900 &&
+        componentWidth > width * 0.035 &&
+        componentHeight > height * 0.035 &&
+        componentWidth < width * 0.18 &&
+        componentHeight < height * 0.14
+      ) {
+        components.push({
+          x: minX,
+          y: minY,
+          width: componentWidth,
+          height: componentHeight,
+          centerX: minX + componentWidth / 2,
+          centerY: minY + componentHeight / 2,
+        });
+      }
+    }
+  }
+
+  return components;
+}
+
+function clusteredCenters(values, tolerance) {
+  const clusters = [];
+  values
+    .slice()
+    .sort((a, b) => a - b)
+    .forEach((value) => {
+      const cluster = clusters.find((item) => Math.abs(item.center - value) <= tolerance);
+      if (cluster) {
+        cluster.values.push(value);
+        cluster.center = cluster.values.reduce((sum, item) => sum + item, 0) / cluster.values.length;
+      } else {
+        clusters.push({ center: value, values: [value] });
+      }
+    });
+  return clusters.map((cluster) => cluster.center).sort((a, b) => a - b);
+}
+
+function nearestIndex(value, centers) {
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+  centers.forEach((center, index) => {
+    const distance = Math.abs(center - value);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  });
+  return bestIndex;
+}
+
+async function recognizeRankNumber(bitmap, component) {
+  const Tesseract = await ensureTesseract();
+  const padX = Math.round(component.width * 0.08);
+  const sourceX = component.x + padX;
+  const sourceY = component.y;
+  const sourceWidth = component.width - padX * 2;
+  const sourceHeight = Math.round(component.height * 0.72);
+  const scale = 10;
+
+  async function recognize(mode) {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    canvas.width = sourceWidth * scale;
+    canvas.height = sourceHeight * scale;
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let index = 0; index < imageData.data.length; index += 4) {
+      const red = imageData.data[index];
+      const green = imageData.data[index + 1];
+      const blue = imageData.data[index + 2];
+      const max = Math.max(red, green, blue);
+      const average = (red + green + blue) / 3;
+      let value = 255;
+      if (mode === "light") value = average > 185 ? 0 : 255;
+      if (mode === "dark") value = max < 95 ? 0 : 255;
+      if (mode === "both") value = max < 75 || average > 210 ? 0 : 255;
+      imageData.data[index] = value;
+      imageData.data[index + 1] = value;
+      imageData.data[index + 2] = value;
+    }
+    context.putImageData(imageData, 0, 0);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    const result = await Tesseract.recognize(blob, "eng", {
+      tessedit_pageseg_mode: "10",
+      tessedit_char_whitelist: "0123456789",
+    });
+    const match = result.data.text.replace(/\s/g, "").match(/10|[1-9]/);
+    return match ? Number(match[0]) : null;
+  }
+
+  return (await recognize("light")) || (await recognize("dark")) || (await recognize("both"));
+}
+
+function repairRankedMatrixEntries(entries) {
+  const usedRanks = new Set();
+  const duplicates = [];
+  entries.forEach((entry) => {
+    if (!entry.rank || entry.rank < 1 || entry.rank > 10 || usedRanks.has(entry.rank)) {
+      duplicates.push(entry);
+      return;
+    }
+    usedRanks.add(entry.rank);
+  });
+
+  const missingRanks = [];
+  for (let rank = 1; rank <= 10; rank += 1) {
+    if (!usedRanks.has(rank)) missingRanks.push(rank);
+  }
+
+  duplicates.forEach((entry, index) => {
+    entry.rank = missingRanks[index] || entry.rank;
+  });
+
+  return entries
+    .filter((entry) => entry.rank >= 1 && entry.rank <= 10 && entry.talent)
+    .sort((a, b) => a.rank - b.rank)
+    .map((entry) => entry.talent);
+}
+
+async function extractMatrixRankedTalentsFromImage(imageSource) {
+  try {
+    const bitmap = await imageBitmapFromSource(imageSource);
+    const allCells = coloredCellComponents(bitmap, false);
+    const rankedCells = coloredCellComponents(bitmap, true);
+    if (allCells.length < 20 || rankedCells.length < 5) return [];
+
+    const averageCellWidth = allCells.reduce((sum, cell) => sum + cell.width, 0) / allCells.length;
+    const averageCellHeight = allCells.reduce((sum, cell) => sum + cell.height, 0) / allCells.length;
+    const columns = clusteredCenters(
+      allCells.map((cell) => cell.centerX),
+      averageCellWidth * 0.6
+    ).slice(0, 8);
+    const rows = clusteredCenters(
+      allCells.map((cell) => cell.centerY),
+      averageCellHeight * 0.6
+    ).slice(0, 5);
+
+    if (columns.length < 6 || rows.length < 4) return [];
+
+    const entries = [];
+    for (const cell of rankedCells) {
+      const columnIndex = nearestIndex(cell.centerX, columns);
+      const rowIndex = nearestIndex(cell.centerY, rows);
+      const talentName = reportMatrixTemplate[rowIndex]?.[columnIndex];
+      const talent = findTalent(talentName);
+      if (!talent) continue;
+      entries.push({
+        rank: await recognizeRankNumber(bitmap, cell),
+        talent,
+        x: cell.centerX,
+        y: cell.centerY,
+      });
+    }
+
+    if (entries.length < 5) return [];
+    return repairRankedMatrixEntries(entries).slice(0, 10);
+  } catch {
+    return [];
+  }
+}
+
 async function ocrPdfPages(file) {
   const pdfjsLib = await ensurePdfJs();
 
@@ -691,12 +1030,34 @@ async function ocrPdfPages(file) {
 
 async function readResultFile(file) {
   if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-    const text = await extractTextFromPdf(file);
-    if (extractRankedTalentsFromText(text).length >= 5) return text;
-    return `${text}\n${await ocrPdfPages(file)}`;
+    const reportPage = await extractReportPageFromPdf(file);
+    let text = reportPage.text;
+    if (extractRankedTalentsFromText(text).length < 5 && reportPage.previewBlob) {
+      text = `${text}\n${await ocrImage(reportPage.previewBlob)}`;
+    }
+    const matrixTalents = reportPage.previewBlob ? await extractMatrixRankedTalentsFromImage(reportPage.previewBlob) : [];
+    if (matrixTalents.length >= 5) {
+      text = `${matrixTalents.map((talent, index) => `${index + 1} ${talent.name}`).join("\n")}\n${text}`;
+    }
+    return {
+      text,
+      previewUrl: reportPage.previewUrl,
+      previewMeta: reportPage.previewMeta,
+      isObjectUrl: false,
+    };
   }
 
-  if (file.type.startsWith("image/")) return ocrImage(file);
+  if (file.type.startsWith("image/")) {
+    const text = await ocrImage(file);
+    const matrixTalents = await extractMatrixRankedTalentsFromImage(file);
+    const matrixText = matrixTalents.map((talent, index) => `${index + 1} ${talent.name}`).join("\n");
+    return {
+      text: matrixText ? `${matrixText}\n${text}` : text,
+      previewUrl: URL.createObjectURL(file),
+      previewMeta: file.name || "导入图片",
+      isObjectUrl: true,
+    };
+  }
 
   throw new Error("仅支持 PDF 或图片");
 }
@@ -708,8 +1069,9 @@ async function importResultFile(file) {
   setImportStatus("读取中");
 
   try {
-    const text = await readResultFile(file);
-    const recognized = extractRankedTalentsFromText(text);
+    const result = await readResultFile(file);
+    setImportedReportPreview(result.previewUrl, result.previewMeta, result.isObjectUrl);
+    const recognized = extractRankedTalentsFromText(result.text);
     if (!applyImportedTalents(recognized)) {
       setImportStatus("请手动确认");
     }
@@ -1016,31 +1378,44 @@ function renderViewer() {
   const isComboMode = testMode === "combination";
   orderedPages.innerHTML = "";
   orderedPages.hidden = true;
+  reportPreview.hidden = true;
   orderedPages.classList.toggle("is-top-five", isResultMode && resultCount === 5);
   orderedPages.classList.toggle("is-top-ten", isResultMode && resultCount === 10);
   orderedPages.classList.toggle("is-combo", isComboMode);
   image.hidden = false;
   pdfLink.hidden = false;
   viewer.classList.toggle("is-result-view", isResultMode || isComboMode);
-  pageStage.classList.toggle("is-result-mode", (isResultMode && resultEntries.length > 0) || (isComboMode && comboEntries.length > 0));
+  pageStage.classList.toggle(
+    "is-result-mode",
+    (isResultMode && (resultEntries.length > 0 || importedReportPreviewUrl)) || (isComboMode && comboEntries.length > 0)
+  );
 
   if (isResultMode) {
+    const hasReportPreview = Boolean(importedReportPreviewUrl);
     viewer.style.setProperty("--domain", "#4b4741");
     badge.textContent = "测试结果";
-    domainDescription.textContent = "按排名顺序展示已输入的才干页面";
+    domainDescription.textContent = hasReportPreview
+      ? "对照右侧报告预览，在左侧手动调整识别结果"
+      : "按排名顺序展示已输入的才干页面";
     title.textContent = resultCount === 5 ? "前五才干" : "前十才干";
     meta.textContent = `已录入 ${resultEntries.length}/${resultCount} 个才干，按排名顺序展示`;
     image.hidden = true;
     pdfLink.hidden = true;
 
-    if (!resultEntries.length) {
+    if (hasReportPreview) {
+      reportPreview.hidden = false;
+      reportPreviewImage.src = importedReportPreviewUrl;
+      reportPreviewMeta.textContent = importedReportPreviewMeta;
+    }
+
+    if (!resultEntries.length && !hasReportPreview) {
       viewer.classList.add("is-empty");
       emptyState.textContent = `请在左侧输入${resultCount === 5 ? "前五" : "前十"}才干`;
       return;
     }
 
     viewer.classList.remove("is-empty");
-    orderedPages.hidden = false;
+    orderedPages.hidden = resultEntries.length === 0;
     resultEntries.forEach(({ index, talent }) => {
       const domain = domainById(talent.domain);
       const card = document.createElement("article");
