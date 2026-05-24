@@ -232,6 +232,37 @@ h1 {
   display: none;
 }
 
+.import-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.import-box button {
+  min-height: 38px;
+  border: 1px solid #2f8072;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.import-box button:disabled {
+  cursor: progress;
+  color: var(--muted);
+  border-color: var(--line);
+  background: #f5f2ed;
+}
+
+.import-box span {
+  min-width: 72px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: right;
+}
+
 .combo-grid {
   display: grid;
   gap: 8px;
@@ -650,6 +681,14 @@ h2 {
 
   .segmented.compact {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .import-box {
+    grid-template-columns: 1fr;
+  }
+
+  .import-box span {
+    text-align: left;
   }
 
   .ordered-page-head {

@@ -87,6 +87,9 @@ const testStatus = document.querySelector("#testStatus");
 const resultEntry = document.querySelector("#resultEntry");
 const resultScope = document.querySelector("#resultScope");
 const rankGrid = document.querySelector("#rankGrid");
+const resultFileInput = document.querySelector("#resultFileInput");
+const resultImportButton = document.querySelector("#resultImportButton");
+const importStatus = document.querySelector("#importStatus");
 const comboEntry = document.querySelector("#comboEntry");
 const comboTalentA = document.querySelector("#comboTalentA");
 const comboTalentB = document.querySelector("#comboTalentB");
@@ -106,6 +109,7 @@ let currentUser = "";
 
 const storageKey = "gallupTalentToolUsers";
 const lastUserKey = "gallupTalentToolLastUser";
+const externalScripts = new Map();
 
 function normalize(value) {
   return value.toLowerCase().replace(/\s+/g, "");
@@ -269,6 +273,236 @@ function talentMatches(talent, query) {
 function findTalent(query) {
   const exact = talents.find((talent) => normalize(talent.name) === normalize(query));
   return exact || talents.find((talent) => talentMatches(talent, query));
+}
+
+function normalizeScanText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/[｜|]/g, "I")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'");
+}
+
+function compactScanText(value) {
+  return normalizeScanText(value)
+    .toLowerCase()
+    .replace(/self[\s-]*assurance/g, "selfassurance")
+    .replace(/[\s·,，.。:：;；、()（）[\]【】"'“”‘’_\-—–]+/g, "");
+}
+
+function talentVariants() {
+  return talents.flatMap((talent) => {
+    const englishCompact = talent.english.replace(/[\s-]+/g, "");
+    const values = [talent.name, talent.english, englishCompact, ...talent.aliases];
+    return [...new Set(values)]
+      .sort((a, b) => b.length - a.length)
+      .map((value) => ({ talent, key: compactScanText(value) }))
+      .filter((entry) => entry.key.length >= 2);
+  });
+}
+
+function talentInText(text) {
+  const compactText = compactScanText(text);
+  return talentVariants()
+    .map(({ talent, key }) => ({ talent, position: compactText.indexOf(key), length: key.length }))
+    .filter((entry) => entry.position >= 0)
+    .sort((a, b) => a.position - b.position || b.length - a.length)[0]?.talent || null;
+}
+
+function extractRankedTalentsFromText(rawText) {
+  const text = normalizeScanText(rawText);
+  const lines = text
+    .replace(/\r/g, "\n")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const ranked = new Map();
+
+  lines.forEach((line, index) => {
+    const rankMatch = line.match(/(?:^|[^0-9])(?:第\s*)?(10|[1-9])\s*(?:[.\-、):：]|名|位)?/);
+    if (!rankMatch) return;
+
+    const rank = Number(rankMatch[1]);
+    if (ranked.has(rank)) return;
+
+    const talent = talentInText(line) || talentInText(lines.slice(index + 1, index + 3).join(" "));
+    if (talent) ranked.set(rank, talent);
+  });
+
+  const rankedMatches = [...ranked.entries()]
+    .filter(([rank]) => rank >= 1 && rank <= 10)
+    .sort((a, b) => a[0] - b[0])
+    .map(([, talent]) => talent);
+
+  if (rankedMatches.length >= 5) return uniqueTalents(rankedMatches).slice(0, rankedMatches.length >= 10 ? 10 : 5);
+
+  const compactText = compactScanText(text);
+  const matches = [];
+  talentVariants().forEach(({ talent, key }) => {
+    const position = compactText.indexOf(key);
+    if (position >= 0) matches.push({ talent, position, length: key.length });
+  });
+
+  return matches
+    .sort((a, b) => a.position - b.position || b.length - a.length)
+    .map((match) => match.talent)
+    .filter((talent, index, array) => array.findIndex((item) => item.name === talent.name) === index)
+    .slice(0, 10);
+}
+
+function uniqueTalents(items) {
+  return items.filter((talent, index, array) => array.findIndex((item) => item.name === talent.name) === index);
+}
+
+function setImportStatus(message) {
+  importStatus.textContent = message;
+}
+
+function setImportBusy(isBusy) {
+  resultImportButton.disabled = isBusy;
+  resultFileInput.disabled = isBusy;
+}
+
+function loadExternalScript(src, globalName) {
+  if (window[globalName]) return Promise.resolve(window[globalName]);
+  if (externalScripts.has(src)) return externalScripts.get(src);
+
+  const promise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.addEventListener("load", () => resolve(window[globalName]));
+    script.addEventListener("error", () => reject(new Error("识别库加载失败")));
+    document.head.append(script);
+  });
+
+  externalScripts.set(src, promise);
+  return promise;
+}
+
+async function ensurePdfJs() {
+  setImportStatus("加载 PDF");
+  return loadExternalScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js", "pdfjsLib");
+}
+
+async function ensureTesseract() {
+  setImportStatus("加载 OCR");
+  return loadExternalScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js", "Tesseract");
+}
+
+function applyImportedTalents(importedTalents) {
+  const recognized = uniqueTalents(importedTalents).slice(0, 10);
+  if (recognized.length < 5) {
+    setImportStatus(`识别到 ${recognized.length} 个`);
+    return false;
+  }
+
+  testMode = "tested";
+  resultCount = recognized.length >= 10 ? 10 : 5;
+  rankedTalents.splice(0, rankedTalents.length, ...Array(10).fill(""));
+  recognized.slice(0, resultCount).forEach((talent, index) => {
+    rankedTalents[index] = talent.name;
+  });
+
+  activeTalent = recognized[0];
+  activeDomain = activeTalent.domain;
+  input.value = activeTalent.name;
+  setImportStatus(`已识别 ${resultCount} 个`);
+  saveCurrentUser();
+  render();
+  return true;
+}
+
+async function extractTextFromPdf(file) {
+  const pdfjsLib = await ensurePdfJs();
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pageLimit = Math.min(pdf.numPages, 12);
+  const chunks = [];
+
+  for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+    setImportStatus(`PDF ${pageNumber}/${pageLimit}`);
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    chunks.push(content.items.map((item) => item.str).join("\n"));
+  }
+
+  return chunks.join("\n");
+}
+
+async function ocrImage(imageSource) {
+  const Tesseract = await ensureTesseract();
+
+  const result = await Tesseract.recognize(imageSource, "chi_sim+eng", {
+    logger(event) {
+      if (event.status === "recognizing text") {
+        setImportStatus(`OCR ${Math.round(event.progress * 100)}%`);
+      }
+    },
+  });
+
+  return result.data.text || "";
+}
+
+async function ocrPdfPages(file) {
+  const pdfjsLib = await ensurePdfJs();
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pageLimit = Math.min(pdf.numPages, 3);
+  const chunks = [];
+
+  for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+    setImportStatus(`扫描页 ${pageNumber}/${pageLimit}`);
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.8 });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: context, viewport }).promise;
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (blob) chunks.push(await ocrImage(blob));
+  }
+
+  return chunks.join("\n");
+}
+
+async function readResultFile(file) {
+  if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+    const text = await extractTextFromPdf(file);
+    if (extractRankedTalentsFromText(text).length >= 5) return text;
+    return `${text}\n${await ocrPdfPages(file)}`;
+  }
+
+  if (file.type.startsWith("image/")) return ocrImage(file);
+
+  throw new Error("仅支持 PDF 或图片");
+}
+
+async function importResultFile(file) {
+  if (!file) return;
+
+  setImportBusy(true);
+  setImportStatus("读取中");
+
+  try {
+    const text = await readResultFile(file);
+    const recognized = extractRankedTalentsFromText(text);
+    if (!applyImportedTalents(recognized)) {
+      setImportStatus("请手动确认");
+    }
+  } catch (error) {
+    setImportStatus(error.message || "识别失败");
+  } finally {
+    setImportBusy(false);
+    resultFileInput.value = "";
+  }
 }
 
 function renderDatalist() {
@@ -586,6 +820,14 @@ resultScope.addEventListener("click", (event) => {
   resultCount = Number(button.dataset.count);
   saveCurrentUser();
   render();
+});
+
+resultImportButton.addEventListener("click", () => {
+  resultFileInput.click();
+});
+
+resultFileInput.addEventListener("change", () => {
+  importResultFile(resultFileInput.files[0]);
 });
 
 comboTalentA.addEventListener("input", () => {

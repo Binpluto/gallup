@@ -44,6 +44,11 @@
           </div>
 
           <div class="result-entry" id="resultEntry" hidden>
+            <div class="import-box">
+              <input id="resultFileInput" type="file" accept="application/pdf,image/*" hidden />
+              <button id="resultImportButton" type="button">导入测评结果</button>
+              <span id="importStatus">PDF / 图片</span>
+            </div>
             <div class="segmented compact" id="resultScope" aria-label="结果范围">
               <button class="is-active" type="button" data-count="5">前五才干</button>
               <button type="button" data-count="10">前十才干</button>
@@ -91,6 +96,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=10"></script>
+    <script src="./app.js?v=11" defer></script>
   </body>
 </html>
