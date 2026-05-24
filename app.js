@@ -90,6 +90,7 @@ const rankGrid = document.querySelector("#rankGrid");
 const resultFileInput = document.querySelector("#resultFileInput");
 const resultImportButton = document.querySelector("#resultImportButton");
 const importStatus = document.querySelector("#importStatus");
+const recordPanel = document.querySelector("#recordPanel");
 const comboEntry = document.querySelector("#comboEntry");
 const comboTalentA = document.querySelector("#comboTalentA");
 const comboTalentB = document.querySelector("#comboTalentB");
@@ -110,6 +111,10 @@ let currentUser = "";
 const storageKey = "gallupTalentToolUsers";
 const lastUserKey = "gallupTalentToolLastUser";
 const externalScripts = new Map();
+const freeRecordLimit = 3;
+const memberPrice = "¥29/月 或 ¥199/年";
+let savedRecords = [];
+let isMember = false;
 
 function normalize(value) {
   return value.toLowerCase().replace(/\s+/g, "");
@@ -138,6 +143,8 @@ function userState() {
     rankedTalents: [...rankedTalents],
     comboTalents: [...comboTalents],
     activeTalent: activeTalent?.name || "",
+    savedRecords: [...savedRecords],
+    isMember,
   };
 }
 
@@ -148,6 +155,8 @@ function blankUserState() {
     rankedTalents: Array(10).fill(""),
     comboTalents: ["", ""],
     activeTalent: "战略",
+    savedRecords: [],
+    isMember: false,
   };
 }
 
@@ -162,6 +171,19 @@ function applyUserState(state) {
   (state?.comboTalents || []).slice(0, 2).forEach((talentName, index) => {
     comboTalents[index] = talentName;
   });
+  savedRecords = Array.isArray(state?.savedRecords)
+    ? state.savedRecords
+        .filter((record) => Array.isArray(record?.talents))
+        .slice(0, 50)
+        .map((record, index) => ({
+          id: record.id || `legacy-record-${index}`,
+          name: record.name || defaultRecordName(index),
+          talents: record.talents.slice(0, 10),
+          createdAt: record.createdAt || new Date().toISOString(),
+          updatedAt: record.updatedAt,
+        }))
+    : [];
+  isMember = Boolean(state?.isMember);
 
   const savedTalent = findTalent(state?.activeTalent || rankedTalents.find(Boolean) || "");
   if (savedTalent) {
@@ -194,12 +216,13 @@ function renderUserList() {
 
 function renderUserStatus() {
   if (!currentUser) {
-    userStatus.textContent = "当前未登录，输入用户名后会自动记住才干结果。";
+    userStatus.textContent = "当前未登录，才干结果和记录不会存储。";
     return;
   }
 
   const filledCount = rankedTalents.filter((name) => Boolean(findTalent(name))).length;
-  userStatus.textContent = `${currentUser} 已进入，已保存 ${filledCount} 个才干。`;
+  const memberLabel = isMember ? "会员" : `免费 ${savedRecords.length}/${freeRecordLimit} 组`;
+  userStatus.textContent = `${currentUser} 已进入，当前录入 ${filledCount} 个才干，记录库：${memberLabel}。`;
 }
 
 function loginUser(name) {
@@ -231,7 +254,10 @@ function logoutUser() {
   currentUser = "";
   usernameInput.value = "";
   localStorage.removeItem(lastUserKey);
+  savedRecords = [];
+  isMember = false;
   renderUserStatus();
+  renderRecordPanel();
 }
 
 function pagePath(page, ext) {
@@ -251,6 +277,102 @@ function rankedTalentEntries() {
     .slice(0, resultCount)
     .map((talentName, index) => ({ index, talent: findTalent(talentName) }))
     .filter((entry) => entry.talent);
+}
+
+function topTenTalentEntries() {
+  return rankedTalents.slice(0, 10).map((talentName, index) => ({ index, talent: findTalent(talentName) }));
+}
+
+function completedTopTenTalents() {
+  const entries = topTenTalentEntries();
+  if (entries.some((entry) => !entry.talent)) return [];
+  return entries.map((entry) => entry.talent);
+}
+
+function talentSignature(talentNames) {
+  return talentNames.map((name) => normalize(name)).join(">");
+}
+
+function currentTopTenSignature() {
+  const talentsInOrder = completedTopTenTalents();
+  return talentsInOrder.length === 10 ? talentSignature(talentsInOrder.map((talent) => talent.name)) : "";
+}
+
+function recordId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return `record-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+}
+
+function defaultRecordName(index) {
+  return `前十记录 ${index + 1}`;
+}
+
+function displayDate(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+}
+
+function saveTopTenRecord(recordName) {
+  if (!currentUser) return;
+
+  const talentsInOrder = completedTopTenTalents();
+  if (talentsInOrder.length !== 10) return;
+
+  const names = talentsInOrder.map((talent) => talent.name);
+  const signature = talentSignature(names);
+  const existingRecord = savedRecords.find((record) => talentSignature(record.talents || []) === signature);
+  const trimmedName = recordName.trim();
+
+  if (existingRecord) {
+    if (trimmedName) existingRecord.name = trimmedName;
+    existingRecord.updatedAt = new Date().toISOString();
+    saveCurrentUser();
+    renderRecordPanel();
+    return;
+  }
+
+  if (!isMember && savedRecords.length >= freeRecordLimit) {
+    renderRecordPanel();
+    return;
+  }
+
+  savedRecords.push({
+    id: recordId(),
+    name: trimmedName || defaultRecordName(savedRecords.length),
+    talents: names,
+    createdAt: new Date().toISOString(),
+  });
+  saveCurrentUser();
+  renderRecordPanel();
+}
+
+function loadTopTenRecord(recordIdValue) {
+  const record = savedRecords.find((item) => item.id === recordIdValue);
+  if (!record) return;
+
+  testMode = "tested";
+  resultCount = 10;
+  rankedTalents.splice(0, rankedTalents.length, ...Array(10).fill(""));
+  record.talents.slice(0, 10).forEach((talentName, index) => {
+    rankedTalents[index] = talentName;
+  });
+
+  const firstTalent = findTalent(record.talents[0]);
+  if (firstTalent) {
+    activeTalent = firstTalent;
+    activeDomain = firstTalent.domain;
+    input.value = firstTalent.name;
+  }
+
+  saveCurrentUser();
+  render();
+}
+
+function deleteTopTenRecord(recordIdValue) {
+  savedRecords = savedRecords.filter((record) => record.id !== recordIdValue);
+  saveCurrentUser();
+  renderRecordPanel();
+  renderUserStatus();
 }
 
 function comboTalentEntries() {
@@ -609,11 +731,164 @@ function renderRankInputs() {
         field.style.removeProperty("--rank-color");
       }
       saveCurrentUser();
+      renderRecordPanel();
     });
 
     field.append(number, rankInput);
     rankGrid.append(field);
   }
+}
+
+function renderRecordPanel() {
+  recordPanel.innerHTML = "";
+  recordPanel.hidden = testMode !== "tested";
+  if (recordPanel.hidden) return;
+
+  const completeTalents = completedTopTenTalents();
+  const signature = currentTopTenSignature();
+  const existingRecord = signature
+    ? savedRecords.find((record) => talentSignature(record.talents || []) === signature)
+    : null;
+
+  const saveBox = document.createElement("section");
+  saveBox.className = "record-save";
+
+  const saveTitle = document.createElement("strong");
+  const saveText = document.createElement("p");
+
+  if (resultCount !== 10) {
+    saveTitle.textContent = "记录库保存前十才干";
+    saveText.textContent = "切换到前十才干并录满 10 个才干后，可保存为一组记录。";
+    saveBox.append(saveTitle, saveText);
+    recordPanel.append(saveBox);
+  } else if (completeTalents.length !== 10) {
+    saveTitle.textContent = "录满前十后可保存";
+    saveText.textContent = currentUser
+      ? "登录用户可免费保存 3 组前十记录，留空会自动命名。"
+      : "当前未登录，录入内容只会临时显示，不会存储为记录。";
+    saveBox.append(saveTitle, saveText);
+    recordPanel.append(saveBox);
+  } else if (!currentUser) {
+    saveBox.classList.add("is-locked");
+    saveTitle.textContent = "是否保存这组前十？";
+    saveText.textContent = "请先输入用户名注册 / 进入。未登录状态不会存储测评记录。";
+    saveBox.append(saveTitle, saveText);
+    recordPanel.append(saveBox);
+  } else if (existingRecord) {
+    saveTitle.textContent = "这组前十已保存";
+    saveText.textContent = "可以继续给这条记录命名，或从下方记录库加载已保存内容。";
+    saveBox.append(saveTitle, saveText, recordNameControls(existingRecord.name || "", "更新名称"));
+    recordPanel.append(saveBox);
+  } else if (!isMember && savedRecords.length >= freeRecordLimit) {
+    saveBox.classList.add("is-locked");
+    saveTitle.textContent = "免费记录已满";
+    saveText.textContent = `免费用户可保存 ${freeRecordLimit} 组前十记录。要保存更多不同才干记录，需要开通会员。`;
+    saveBox.append(saveTitle, saveText);
+    recordPanel.append(saveBox);
+  } else {
+    saveTitle.textContent = "是否保存这组前十？";
+    saveText.textContent = `可选命名；留空会自动命名。免费记录剩余 ${isMember ? "不限" : freeRecordLimit - savedRecords.length} 组。`;
+    saveBox.append(saveTitle, saveText, recordNameControls("", "保存记录"));
+    recordPanel.append(saveBox);
+  }
+
+  if (!isMember && currentUser) recordPanel.append(memberCard());
+  if (currentUser && savedRecords.length) recordPanel.append(recordList());
+}
+
+function recordNameControls(value, buttonText) {
+  const row = document.createElement("div");
+  row.className = "record-name-row";
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.placeholder = "可选：如 2026 职业规划";
+  nameInput.value = value;
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.dataset.action = "save-record";
+  saveButton.textContent = buttonText;
+
+  row.append(nameInput, saveButton);
+  return row;
+}
+
+function memberCard() {
+  const card = document.createElement("section");
+  card.className = "member-card";
+
+  const titleRow = document.createElement("div");
+  titleRow.className = "record-title-row";
+
+  const titleText = document.createElement("strong");
+  titleText.textContent = `会员方案 ${memberPrice}`;
+
+  const badgeText = document.createElement("p");
+  badgeText.textContent = "推荐价";
+
+  titleRow.append(titleText, badgeText);
+
+  const description = document.createElement("p");
+  description.textContent =
+    "适合需要持续保存多位客户、团队成员或不同阶段测评结果的用户。价格低于一次正式测评，价值集中在记录管理和才干应用。";
+
+  const action = document.createElement("button");
+  action.type = "button";
+  action.dataset.action = "membership-info";
+  action.textContent = "开通会员";
+
+  card.append(titleRow, description, action);
+  return card;
+}
+
+function recordList() {
+  const wrapper = document.createElement("section");
+  wrapper.className = "record-list";
+
+  savedRecords.forEach((record, index) => {
+    const card = document.createElement("article");
+    card.className = "record-card";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "record-title-row";
+
+    const titleText = document.createElement("strong");
+    titleText.textContent = record.name || defaultRecordName(index);
+
+    const dateText = document.createElement("p");
+    dateText.textContent = displayDate(record.updatedAt || record.createdAt);
+
+    titleRow.append(titleText, dateText);
+
+    const talentList = document.createElement("ol");
+    record.talents.slice(0, 10).forEach((talentName) => {
+      const item = document.createElement("li");
+      item.textContent = talentName;
+      talentList.append(item);
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "record-actions";
+
+    const loadButton = document.createElement("button");
+    loadButton.type = "button";
+    loadButton.dataset.action = "load-record";
+    loadButton.dataset.recordId = record.id;
+    loadButton.textContent = "加载";
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.dataset.action = "delete-record";
+    deleteButton.dataset.recordId = record.id;
+    deleteButton.textContent = "删除";
+
+    actions.append(loadButton, deleteButton);
+    card.append(titleRow, talentList, actions);
+    wrapper.append(card);
+  });
+
+  return wrapper;
 }
 
 function renderComboInputs() {
@@ -775,6 +1050,7 @@ function render() {
   updateSegmentedButtons(resultScope, resultCount, "count");
   if (testMode === "tested") renderRankInputs();
   if (testMode === "combination") renderComboInputs();
+  renderRecordPanel();
   renderTabs();
   renderTalentList();
   renderViewer();
@@ -828,6 +1104,28 @@ resultImportButton.addEventListener("click", () => {
 
 resultFileInput.addEventListener("change", () => {
   importResultFile(resultFileInput.files[0]);
+});
+
+recordPanel.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+
+  if (button.dataset.action === "save-record") {
+    const nameInput = button.closest(".record-name-row")?.querySelector("input");
+    saveTopTenRecord(nameInput?.value || "");
+  }
+
+  if (button.dataset.action === "load-record") {
+    loadTopTenRecord(button.dataset.recordId);
+  }
+
+  if (button.dataset.action === "delete-record") {
+    deleteTopTenRecord(button.dataset.recordId);
+  }
+
+  if (button.dataset.action === "membership-info") {
+    importStatus.textContent = "会员支付待接入";
+  }
 });
 
 comboTalentA.addEventListener("input", () => {
